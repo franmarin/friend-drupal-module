@@ -1,0 +1,11 @@
+name = Friend content type module
+description = Module to manage Friend content
+package = Friend
+core = 7.x
+version = 1.x-dev
+
+stylesheets[all][] = css/style.css
+
+files[] = friend.install
+files[] = friend.module
+files[] = friend.mail.inc

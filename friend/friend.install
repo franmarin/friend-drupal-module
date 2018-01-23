@@ -1,0 +1,111 @@
+<?php
+
+/**
+ * Implements hook_install().
+ */
+function friend_install() {
+    node_types_rebuild();
+    add_custom_fields();
+    add_dummy_content();
+}
+
+function add_custom_fields() {
+    foreach (_friend_installed_fields() as $field) {
+        if (empty(field_info_field($field['field_name']))) {
+            field_create_field($field);
+        }
+    }
+    foreach (_friend_installed_instances() as $field_instance) {
+        $field_instance['entity_type'] = 'node';
+        $field_instance['bundle'] = 'friend';
+        field_create_instance($field_instance);
+    }
+}
+
+function _friend_installed_fields() {
+    return [
+        'friend_name' => [
+            'field_name' => 'friend_name',
+            'label' => t('Name'),
+            'type' => 'text'
+        ],
+        'friend_first_name' => [
+            'field_name' => 'friend_first_name',
+            'label' => t('First name'),
+            'type' => 'text'
+        ],
+        'friend_email' => [
+            'field_name' => 'friend_email',
+            'label' => t('E-mail'),
+            'type' => 'text'
+        ],
+        'friend_birthday' => [
+            'field_name' => 'friend_birthday',
+            'label' => t('Birthday'),
+            'type' => 'text'
+        ]
+    ];
+}
+
+function _friend_installed_instances() {
+    return [
+        'friend_name' => _get_friend_instance('friend_name', 'Name'),
+        'friend_first_name' => _get_friend_instance('friend_first_name', 'First name'),
+        'friend_email' => _get_friend_instance('friend_email', 'E-mail'),
+        'friend_birthday' => _get_friend_instance('friend_birthday', 'Birthday')
+    ];
+}
+
+function _get_friend_instance($machine_name, $label) {
+    return [
+        'field_name' => $machine_name,
+        'type' => 'text',
+        'label' => t($label),
+        'widget' => ['type' => 'text_textfield'],
+        'display' => [
+            'example_node_list' => [
+                'label' => t($label),
+                'type' => 'text'
+            ]
+        ]
+    ];
+}
+
+function add_dummy_content() {
+    require_once drupal_get_path('module', 'Friend') . DIRECTORY_SEPARATOR . 'dummy' . DIRECTORY_SEPARATOR . 'create_dummy_friends.php.inc';
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function friend_uninstall() {
+    set_time_limit(60);
+
+    $query = db_select('node', 'n');
+    $query->fields('n', ['nid']);
+    $query->condition('n.type', 'friend');
+    $result = $query->execute()->fetchAll();
+
+    foreach ($result as $row) {
+        $node_ids[] = $row->nid;
+    }
+
+    node_delete_multiple($node_ids);
+
+    $node_type = node_type_load('friend');
+    node_type_delete($node_type);
+    delete_custom_fields();
+    field_purge_batch(500);
+}
+
+function delete_custom_fields() {
+    foreach (array_keys(_friend_installed_fields()) as $field) {
+        if (!empty(field_info_field($field))) {
+            field_delete_field($field);
+        }
+    }
+    $instances = field_info_instances('node', 'friend');
+    foreach ($instances as $instance_name => $field_instance) {
+        field_delete_instance($field_instance);
+    }
+}

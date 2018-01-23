@@ -1,0 +1,23 @@
+[
+  {
+    "title": "Dummy friend 1",
+    "friend_name": "Dummy Friend 1 Name",
+    "friend_first_name": "Dummy Friend 1 First Name",
+    "friend_email": "dummy1@friend.com",
+    "friend_birthday": "01/01/1980"
+  },
+  {
+    "title": "Dummy friend 2",
+    "friend_name": "Dummy Friend 2 Name",
+    "friend_first_name": "Dummy Friend 2 First Name",
+    "friend_email": "dummy2@friend.com",
+    "friend_birthday": "02/01/1980"
+  },
+  {
+    "title": "Dummy friend 3",
+    "friend_name": "Dummy Friend 3 Name",
+    "friend_first_name": "Dummy Friend 3 First Name",
+    "friend_email": "dummy3@friend.com",
+    "friend_birthday": "03/01/1980"
+  }
+]

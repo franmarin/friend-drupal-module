@@ -1,0 +1,238 @@
+<?php
+
+define('FRIEND_CONTENT_TYPE_NAME', 'friend');
+define('FRIEND_FILTER_SUBMITTED_VALUE', 'friend_filter_submitted_value');
+define('FRIEND_LAST_BIRTHDAY_EMAIL_TIME', 'friend_last_birthday_email_time');
+
+/**
+ * Implements hook_node_info()
+ *
+ * @return associative_array
+ */
+function friend_node_info() {
+    return [
+        FRIEND_CONTENT_TYPE_NAME => [
+            'name' => t('Friend content'),
+            'base' => FRIEND_CONTENT_TYPE_NAME,
+            'description' => t('Content type with your friend details'),
+            'has_title' => true,
+            'title_label' => t('Friend content title')
+         ]
+    ];
+}
+
+/**
+ * Sets content type template variable.
+ *
+ * @param $variables
+ */
+function friend_preprocess_node(&$variables) {
+    if (isset($variables['node'])) {
+        $variables['friend_name'] = $variables['node']->friend_name[LANGUAGE_NONE][0]['value'];
+        $variables['friend_email'] = $variables['node']->friend_email[LANGUAGE_NONE][0]['value'];
+    }
+}
+
+/**
+ * Implements hook_menu()
+ *
+ * @return associative_array
+ */
+function friend_menu() {
+    return [
+        'friends' => [
+            'title' => 'Friends',
+            'description' => 'Friends page',
+            'page callback' => 'friend_search',
+            'access callback' => true
+        ],
+        'friends/autocomplete/%' => [
+            'page callback' => 'friend_autocomplete_search',
+            'page arguments' => [2],
+            'type' => MENU_CALLBACK,
+            'access callback' => true
+        ]
+    ];
+}
+
+/**
+ * Implements hook_theme()
+ *
+ * @return associative_array
+ */
+function friend_theme() {
+    return [
+        'friends_list' => [
+            'template' => 'friends_list',
+            'path' => _get_module_path_file('templates'),
+            'variables' => [
+                'friends_list' => null
+            ]
+        ],
+        'node__friend' => [
+            'template' => FRIEND_CONTENT_TYPE_NAME,
+            'path' => _get_module_path_file('templates'),
+            'render element' => 'content',
+            'base hook' => 'node'
+        ]
+    ];
+}
+
+/**
+ * Returns search field with result.
+ *
+ * @return array
+ */
+function friend_search() {
+    $search_form = drupal_get_form('friend_search_form');
+    $search_result = _get_search_result(variable_get(FRIEND_FILTER_SUBMITTED_VALUE, ''));
+    return [$search_form, $search_result];
+}
+
+/**
+ * Returns search form.
+ *
+ * @param $form_id
+ * @param $form_state
+ * @return associative_array
+ */
+function friend_search_form($form_id, &$form_state) {
+    return [
+        'filter' => [
+            '#title' => t('Filter friends'),
+            '#type' => 'textfield',
+            '#autocomplete_path' => 'friends/autocomplete'
+        ],
+        'submit' => [
+            '#type' => 'submit',
+            '#value' => t('Filter')
+        ]
+    ];
+}
+
+/**
+ * Saves the submitted value on a variable to make it accessible across multiple
+ * pages.
+ *
+ * @param $form_id
+ * @param $form_state
+ */
+function friend_search_form_submit($form_id, &$form_state) {
+    if (isset($form_state['values']['filter'])) {
+        variable_set(FRIEND_FILTER_SUBMITTED_VALUE, $form_state['values']['filter']);
+    }
+}
+
+/**
+ * Returns an structure with the result of searching Friends based on the
+ * given filter parameter.
+ *
+ * @param $friend_filter_submitted
+ * @return associative_array
+ */
+function _get_search_result($friend_filter_submitted) {
+    return [
+        'data' => [
+            '#theme' => 'friends_list',
+            '#friends_list' => _get_friends($friend_filter_submitted)
+        ],
+        'pager' => [
+            '#theme' => 'pager',
+            '#element' => 0
+        ]
+    ];
+}
+
+/**
+ * Returns Friends found based on the given filter.
+ * TODO: Move this DB query to a DAO class.
+ *
+ * @param $filter
+ * @return array
+ */
+function _get_friends($filter = '') {
+    $query = db_select('node', 'n');
+    $query->leftJoin('field_data_friend_name', 'fn', 'fn.entity_id = n.nid');
+    $query->leftJoin('field_data_friend_first_name', 'ffn', 'ffn.entity_id = n.nid');
+    $query->leftJoin('field_data_friend_email', 'fe', 'fe.entity_id = n.nid');
+    $query->leftJoin('field_data_friend_birthday', 'fb', 'fb.entity_id = n.nid');
+    $query->fields('n', ['nid']);
+    $query->fields('fn', ['friend_name_value']);
+    $query->fields('ffn', ['friend_first_name_value']);
+    $query->fields('fe', ['friend_email_value']);
+    $query->fields('fb', ['friend_birthday_value']);
+    $query->condition('n.type', FRIEND_CONTENT_TYPE_NAME);
+    $or_condition = db_or();
+    $or_condition->condition('fn.friend_name_value', "%$filter%", 'LIKE');
+    $or_condition->condition('ffn.friend_first_name_value', "%$filter%", 'LIKE');
+    $or_condition->condition('fe.friend_email_value', "%$filter%", 'LIKE');
+    $or_condition->condition('fb.friend_birthday_value', "%$filter%", 'LIKE');
+    $query->condition($or_condition);
+    return $query->execute()->fetchAll();
+}
+
+/**
+ * Returns the search result in JSON format.
+ *
+ * @param $filter
+ */
+function friend_autocomplete_search($filter) {
+    $output = [];
+    $friends = _get_friends($filter);
+    if ($friends) {
+        foreach ($friends as $friend) {
+            $output[$friend->friend_name_value] = "{$friend->friend_name_value} {$friend->friend_first_name_value} {$friend->friend_email_value} {$friend->friend_birthday_value}";
+        }
+    }
+    drupal_json_output($output);
+}
+
+/**
+ * Implements hook_cron() to send an email to those Friends whose birthday is
+ * today.
+ *
+ * TODO: Set email text from settings form or rule/component.
+ */
+function friend_cron() {
+    $today_date = date('Y-m-d');
+    if (!_friend_cron_can_be_run($today_date)) {
+        return;
+    }
+
+    variable_set('friend_last_birthday_email_time', time());
+    require_once _get_module_path_file('friend.mail.inc');
+    $nodes = _get_friends();
+    foreach($nodes as $node) {
+        if ($node->friend_birthday_value == $today_date) {
+            friend_mail_send($node->friend_email_value, 'Happy birthday!', 'Hi there! Any plan for your birthday?');
+        }
+    }
+
+}
+
+function _friend_cron_can_be_run($today_date) {
+    $last_timestamp = variable_get(FRIEND_LAST_BIRTHDAY_EMAIL_TIME, 0);
+    $last_date = date('Y-m-d', $last_timestamp);
+    $this_hour = date('H');
+    $after_hour = ($this_hour >= variable_get('friend_birthday_email_hour', 0));
+    $new_day = ($today_date > $last_date);
+    return $after_hour && $new_day;
+}
+
+/**
+ * Helper function to get a file path inside this module.
+ *
+ * @param $file_name
+ * @return string
+ */
+function _get_module_path_file($file_name) {
+    return drupal_get_path('module', FRIEND_CONTENT_TYPE_NAME) . DIRECTORY_SEPARATOR. $file_name;
+}
+
+
+/**
+ * Implement hook_form()
+ */
+// function friend_form($node, $form_state) {
+//     return node_content_form($node, $form_state);
+// }
